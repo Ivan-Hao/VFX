@@ -1,9 +1,9 @@
 import cv2 
 import numpy as np
 import os 
-import math
 from numpy import linalg as la
 import matplotlib.pyplot as plt
+
 
 def alignment(base, **others):
     pass
@@ -31,8 +31,8 @@ def response_curve(picture, t ,lamb):
     sample = [sample_B,sample_G,sample_R]
 
     for z in range(3):
-        A = np.zeros((N*P+1+254,256+N))
-        b = np.zeros((N*P+1+254,1))
+        A = np.zeros((N*P+1+254,256+N), dtype=np.float64)
+        b = np.zeros((N*P+1+254,1), dtype=np.float64)
         
         k = 0 
         for i in range(sample[z].shape[0]):
@@ -50,8 +50,11 @@ def response_curve(picture, t ,lamb):
             A[k,i] = -2 * lamb * weighted(i)
             A[k,i+1] = lamb * weighted(i)
             k+=1
+        
         x = la.lstsq(A,b,rcond=None)[0]
+
         ret.append(x[0:256,0])
+
     return ret
     
 
@@ -61,17 +64,18 @@ def tone_mapping():
 
 
 if __name__ == '__main__':
-    lamb = 1
+    lamb = 10
     base = '.\\test'
     img = []
     for root,dirs,files in os.walk(base):
         for i in files:
             img.append(cv2.imread(os.path.join(base,i)))
-    explosure_time = list(map(lambda x: math.log(x),[4,2,1,0.5,0.25,0.125,0.0625,0.03125]))
+    explosure_time = [np.log(2**i) for i in range(5,-11,-1)]
+    print(explosure_time)
     res_cur = response_curve(img,explosure_time,lamb)
     
     seq = [i for i in range(256)]
-    plt.plot(res_cur[0],seq )
-    plt.plot(res_cur[1],seq )
-    plt.plot(res_cur[2],seq )
+    plt.plot(res_cur[0],seq,'b')
+    plt.plot(res_cur[1],seq,'g')
+    plt.plot(res_cur[2],seq,'r')
     plt.show()
