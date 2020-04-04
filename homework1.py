@@ -1,81 +1,194 @@
-import cv2 
+from cv2 import cv2 
 import numpy as np
-import os 
+import os
 from numpy import linalg as la
 import matplotlib.pyplot as plt
 
+np.set_printoptions(threshold=20000000)
+class HDR():
 
-def alignment(base, **others):
-    pass
+    def __init__(self, rgb_picture, gray_picture, base_picture, time, _lambda):
+        self.rgb_picture = rgb_picture
+        self.gray_picture =  gray_picture
+        self.base_picture = base_picture 
+        self.P = len(rgb_picture)
+        self.shape = base_picture.shape[0:2]
+        self._lambda = _lambda
+        self.time = np.log(time,dtype=np.float32)
+        self.res_curve = None
+        self.irrandiance = None
 
-def weighted(value):
-    return 255-value if value > 127 else value
 
-def response_curve(picture, t ,lamb):
-    P = len(picture)
-    x_interval = picture[0].shape[0]//7
-    y_interval = picture[0].shape[1]//7
-    sample_matrix = np.zeros(picture[0].shape[0:2])
-    sample_matrix[x_interval:-x_interval+1:x_interval,y_interval:-y_interval+1:y_interval] = 1
-    sample_index = np.where(sample_matrix == 1)
-    sample_B = np.expand_dims(picture[0][:,:,0][sample_index], axis=0) 
-    sample_G = np.expand_dims(picture[0][:,:,1][sample_index], axis=0) 
-    sample_R = np.expand_dims(picture[0][:,:,2][sample_index], axis=0) 
-    for i in range(1,P):
-        sample_B = np.concatenate((sample_B,np.expand_dims( picture[i][:,:,0][sample_index],axis=0)), axis=0)
-        sample_G = np.concatenate((sample_G,np.expand_dims( picture[i][:,:,1][sample_index],axis=0)), axis=0)
-        sample_R = np.concatenate((sample_R,np.expand_dims( picture[i][:,:,2][sample_index],axis=0)), axis=0)
+    def alignment(self):
+        median = np.median(self.gray_picture[4])
+        mask = np.logical_or(self.gray_picture[4] > median+10 , self.gray_picture[4] < median-10)
+        print(mask)
 
-    ret = []
-    N =  sample_B.shape[1] #sample points
-    sample = [sample_B,sample_G,sample_R]
 
-    for z in range(3):
-        A = np.zeros((N*P+1+254,256+N), dtype=np.float64)
-        b = np.zeros((N*P+1+254,1), dtype=np.float64)
+        gray_base = self.gray_picture[4]
+        base_pyramid = [gray_base[::2**i,::2**i] for i in range(8)]
+        gray_pyramid = []
+        for i in range(self.P):
+            gray_pyramid.append([self.gray_picture[i][::2**j,::2**j] for j in range(8)])
         
-        k = 0 
-        for i in range(sample[z].shape[0]):
-            for j in range(sample[z].shape[1]):
-                wij = weighted(sample[z][i,j])
-                A[k,sample[z][i,j]] = wij
-                A[k,256+j] = -wij
-                b[k,0] = wij * t[i]
-                k+=1
+        for i in range(self.P):
+            shift_x=0
+            shift_y=0
+            for j in range(6,-1,-1):
+                M = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
+                compare = cv2.warpAffine(gray_pyramid[i][j], M, gray_pyramid[i][j].shape[0:2][::-1])
 
-        A[k,127] = 1
-        k+=1
-        for i in range(1,255):
-            A[k,i-1] = lamb * weighted(i)
-            A[k,i] = -2 * lamb * weighted(i)
-            A[k,i+1] = lamb * weighted(i)
-            k+=1
-        
-        x = la.lstsq(A,b,rcond=None)[0]
+                index = np.argmin([
+                    (base_pyramid[j] != compare).sum(),
+                    (compare[:,:-1] != base_pyramid[j][:,1:]).sum(), #上移
+                    (compare[:,1:] != base_pyramid[j][:,:-1]).sum(), #下移
+                    (compare[:-1,:] != base_pyramid[j][1:,:]).sum(), #左移
+                    (compare[1:,:] != base_pyramid[j][:-1,:]).sum(), #右移
+                    (compare[:-1,:-1] != base_pyramid[j][1:,1:]).sum(), #左上移
+                    (compare[1:,1:] != base_pyramid[j][:-1,:-1]).sum(), #右下移
+                    (compare[:-1,1:] != base_pyramid[j][1:,:-1]).sum(), #左下移
+                    (compare[1:,:-1] != base_pyramid[j][:-1,1:]).sum(), #右上移
+                ])
+                print(shift_x,shift_y)
+                
+                if index == 1: # 上
+                    shift_y -=1
+                elif index == 2: # 下
+                    shift_y +=1
+                elif index == 3: # 左
+                    shift_x -=1
+                elif index == 4: # 右
+                    shift_x +=1
+                elif index == 5: #左上
+                    shift_x -= 1
+                    shift_y -= 1
+                elif index == 6: #右下
+                    shift_x += 1
+                    shift_y += 1
+                elif index == 7: #左下
+                    shift_x -= 1
+                    shift_y += 1
+                elif index == 8: #右上
+                    shift_x += 1
+                    shift_y -= 1
 
-        ret.append(x[0:256,0])
+                shift_y *=2
+                shift_x *=2
 
-    return ret
+            #cv2.imwrite('./result/result'+ str(i)+'.jpg', res)   
+
+
+
+    def weighted(self, value):
+        return 256-value if value > 127 else value
     
+    '''
+    def sample_pattern(self,rgb):
+        pattern = np.zeros(self.shape,dtype=bool)
+        for i in range(256):
+            r, c = np.where(self.base_picture[:,:,rgb] == i) 
+            if len(r) !=0  :
+                pattern[r[len(r)//2],c[len(c)//2]] = True
+        return pattern
+    '''
 
-def tone_mapping():
-    pass
+    def response_curve(self):
+        
+        x_interval = self.shape[0]//15
+        y_interval = self.shape[1]//15
+        sample_matrix = np.zeros(self.shape,dtype=bool)
+        sample_matrix[x_interval:-x_interval+1:x_interval,y_interval:-y_interval+1:y_interval] = True
+        
+        sample_R = np.expand_dims(self.rgb_picture[0][:,:,0][sample_matrix], axis=1)
+        sample_G = np.expand_dims(self.rgb_picture[0][:,:,1][sample_matrix], axis=1) 
+        sample_B = np.expand_dims(self.rgb_picture[0][:,:,2][sample_matrix], axis=1)
+ 
+        for i in range(1,self.P):
+            sample_R = np.concatenate((sample_R,np.expand_dims( self.rgb_picture[i][:,:,0][sample_matrix],axis=1)), axis=1)
+            sample_G = np.concatenate((sample_G,np.expand_dims( self.rgb_picture[i][:,:,1][sample_matrix],axis=1)), axis=1)
+            sample_B = np.concatenate((sample_B,np.expand_dims( self.rgb_picture[i][:,:,2][sample_matrix],axis=1)), axis=1)
+
+        ret = []
+        sample = [sample_R,sample_G,sample_B]
+
+        for z in range(3):
+            N = sample[z].shape[0] #sample points
+            A = np.zeros((N*self.P+1+254,256+N), dtype=np.float32)
+            b = np.zeros((N*self.P+1+254,1), dtype=np.float32)
+            k = 0 
+            for i in range(sample[z].shape[0]):  
+                for j in range(sample[z].shape[1]):  
+                    wij = self.weighted(sample[z][i,j])
+                    A[k,sample[z][i,j]] = wij
+                    A[k,256+i] = -wij
+                    b[k,0] = wij * self.time[j]
+                    k+=1
+            A[k,127] = 1
+            k+=1
+            for i in range(1,255):
+                A[k,i-1] = self._lambda * self.weighted(i)
+                A[k,i] = -2 * self._lambda * self.weighted(i)
+                A[k,i+1] = self._lambda * self.weighted(i)
+                k+=1
+            x = la.lstsq(A,b,rcond=None)[0]
+
+            ret.append(x[0:256,0])
+        return ret
+    
+    def plot_res_curve(self):
+        self.res_curve = self.response_curve()
+        seq = [i for i in range(256)]
+        plt.plot(self.res_curve[0],seq,'r')
+        plt.plot(self.res_curve[1],seq,'g')
+        plt.plot(self.res_curve[2],seq,'b')
+        plt.show()
+
+    def construct_irradiance(self):
+
+        irmap = np.zeros(self.base_picture.shape,dtype=np.float32)
+        for i in range(3):
+            divisor , dividend = np.zeros(self.shape,dtype=np.float32), np.zeros(self.shape,dtype=np.float32)
+            for l in range(self.P):
+                W = np.where(self.rgb_picture[l][:,:,i]>127,256-self.rgb_picture[l][:,:,i],self.rgb_picture[l][:,:,i])
+                divisor += W
+                dividend += W * (self.res_curve[i][self.rgb_picture[l][:,:,i]] - self.time[l])
+            
+            irmap[:,:,i] = np.exp(dividend / divisor)              
+        self.irrandiance = irmap
+
+    def plot_irmap(self):
+        for i in range(3):
+            plt.imshow(self.irrandiance[:,:,i],cmap='jet')
+            plt.colorbar()
+            plt.show()
+
+
+    def tone_mapping(self):
+        LDR = np.zeros(self.base_picture.shape, dtype=np.uint8)
+        for i in range(3):
+            _min, _max = np.min(self.irrandiance[:,:,i]), np.max(self.irrandiance[:,:,i])
+            gap = (_max-_min)/256
+            LDR[:,:,i] = self.irrandiance[:,:,i]//gap
+        plt.imshow(LDR)
+        plt.show()
+
 
 
 
 if __name__ == '__main__':
     lamb = 10
-    base = '.\\test'
-    img = []
+    base = '.\\test2'
+    rgb_img = []
+    gray_img = []
     for root,dirs,files in os.walk(base):
         for i in files:
-            img.append(cv2.imread(os.path.join(base,i)))
-    explosure_time = [np.log(2**i) for i in range(5,-11,-1)]
-    print(explosure_time)
-    res_cur = response_curve(img,explosure_time,lamb)
+            rgb_img.append(cv2.imread(os.path.join(base,i))[:,:,::-1])
+            gray_img.append(cv2.imread(os.path.join(base,i),cv2.IMREAD_GRAYSCALE))
     
-    seq = [i for i in range(256)]
-    plt.plot(res_cur[0],seq,'b')
-    plt.plot(res_cur[1],seq,'g')
-    plt.plot(res_cur[2],seq,'r')
-    plt.show()
+    #explosure_time = [1/0.03125,1/0.0625,1/0.125,1/0.25,1/0.5,1,1/2,1/4,1/8,1/16,1/32,1/64,1/128,1/256,1/512,1/1024]
+    explosure_time= [1/15,1/20,1/25,1/30,1/40,1/50,1/60,1/80,1/100]
+    HDR_instance = HDR(rgb_img, gray_img, rgb_img[4], explosure_time, lamb)
+    HDR_instance.plot_res_curve()
+    HDR_instance.construct_irradiance()
+    #HDR_instance.alignment()
+    HDR_instance.tone_mapping()
