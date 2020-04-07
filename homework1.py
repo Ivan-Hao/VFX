@@ -14,9 +14,11 @@ class HDR():
         self.P = len(rgb_picture)
         self.shape = base_picture.shape[0:2]
         self._lambda = _lambda
-        self.time = np.log(time,dtype=np.float32)
+        self.time = np.log(time,dtype=np.float64)
         self.res_curve = None
         self.irrandiance = None
+        self.ln_irrandiance = None
+        self.LDR = None
 
 
     def alignment(self):
@@ -35,7 +37,7 @@ class HDR():
             shift_x=0
             shift_y=0
             for j in range(6,-1,-1):
-                M = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
+                M = np.float64([[1, 0, shift_x], [0, 1, shift_y]])
                 compare = cv2.warpAffine(gray_pyramid[i][j], M, gray_pyramid[i][j].shape[0:2][::-1])
 
                 index = np.argmin([
@@ -80,7 +82,7 @@ class HDR():
 
 
     def weighted(self, value):
-        return 256-value if value > 127 else value
+        return 256-value if value > 127 else 1+value
     
     '''
     def sample_pattern(self,rgb):
@@ -94,8 +96,8 @@ class HDR():
 
     def response_curve(self):
         
-        x_interval = self.shape[0]//15
-        y_interval = self.shape[1]//15
+        x_interval = self.shape[0]//20
+        y_interval = self.shape[1]//20
         sample_matrix = np.zeros(self.shape,dtype=bool)
         sample_matrix[x_interval:-x_interval+1:x_interval,y_interval:-y_interval+1:y_interval] = True
         
@@ -113,8 +115,8 @@ class HDR():
 
         for z in range(3):
             N = sample[z].shape[0] #sample points
-            A = np.zeros((N*self.P+1+254,256+N), dtype=np.float32)
-            b = np.zeros((N*self.P+1+254,1), dtype=np.float32)
+            A = np.zeros((N*self.P+1+254,256+N), dtype=np.float64)
+            b = np.zeros((N*self.P+1+254,1), dtype=np.float64)
             k = 0 
             for i in range(sample[z].shape[0]):  
                 for j in range(sample[z].shape[1]):  
@@ -123,7 +125,7 @@ class HDR():
                     A[k,256+i] = -wij
                     b[k,0] = wij * self.time[j]
                     k+=1
-            A[k,127] = 1
+            A[k,128] = 1
             k+=1
             for i in range(1,255):
                 A[k,i-1] = self._lambda * self.weighted(i)
@@ -144,32 +146,37 @@ class HDR():
         plt.show()
 
     def construct_irradiance(self):
-
-        irmap = np.zeros(self.base_picture.shape,dtype=np.float32)
+        irmap = np.zeros(self.base_picture.shape,dtype=np.float64)
         for i in range(3):
-            divisor , dividend = np.zeros(self.shape,dtype=np.float32), np.zeros(self.shape,dtype=np.float32)
+            divisor , dividend = np.zeros(self.shape,dtype=np.float64), np.zeros(self.shape,dtype=np.float64)
             for l in range(self.P):
-                W = np.where(self.rgb_picture[l][:,:,i]>127,256-self.rgb_picture[l][:,:,i],self.rgb_picture[l][:,:,i])
+                W = np.where(self.rgb_picture[l][:,:,i]>127,256-self.rgb_picture[l][:,:,i],1+self.rgb_picture[l][:,:,i])
                 divisor += W
                 dividend += W * (self.res_curve[i][self.rgb_picture[l][:,:,i]] - self.time[l])
-            
-            irmap[:,:,i] = np.exp(dividend / divisor)              
-        self.irrandiance = irmap
 
-    def plot_irmap(self):
+            irmap[:,:,i] = dividend / divisor
+        self.irrandiance = np.exp(irmap)
+        self.ln_irrandiance = irmap
+
+    def plot_ln_irmap(self):
         for i in range(3):
-            plt.imshow(self.irrandiance[:,:,i],cmap='jet')
+            plt.imshow(self.ln_irrandiance[:,:,i],cmap='jet')
             plt.colorbar()
             plt.show()
 
 
-    def tone_mapping(self):
-        LDR = np.zeros(self.base_picture.shape, dtype=np.uint8)
-        for i in range(3):
-            _min, _max = np.min(self.irrandiance[:,:,i]), np.max(self.irrandiance[:,:,i])
-            gap = (_max-_min)/256
-            LDR[:,:,i] = self.irrandiance[:,:,i]//gap
+    def global_tone_mapping(self,delta=1e-5,a=0.5):
+        L_bar = np.exp(np.mean(np.log(delta+self.irrandiance)))
+        L_m = (a/L_bar)*self.irrandiance
+        L_d = L_m/(1+L_m)
+        LDR = (L_d*255).astype(np.uint8)
+        self.LDR = LDR
         plt.imshow(LDR)
+        plt.show()
+
+    def gamma_mapping(self):
+        gamma = np.power(self.LDR/float(np.max(self.LDR)), 1.5)
+        plt.imshow(gamma)
         plt.show()
 
 
@@ -177,7 +184,7 @@ class HDR():
 
 if __name__ == '__main__':
     lamb = 10
-    base = '.\\test2'
+    base = '.\\test3'
     rgb_img = []
     gray_img = []
     for root,dirs,files in os.walk(base):
@@ -185,10 +192,13 @@ if __name__ == '__main__':
             rgb_img.append(cv2.imread(os.path.join(base,i))[:,:,::-1])
             gray_img.append(cv2.imread(os.path.join(base,i),cv2.IMREAD_GRAYSCALE))
     
-    #explosure_time = [1/0.03125,1/0.0625,1/0.125,1/0.25,1/0.5,1,1/2,1/4,1/8,1/16,1/32,1/64,1/128,1/256,1/512,1/1024]
-    explosure_time= [1/15,1/20,1/25,1/30,1/40,1/50,1/60,1/80,1/100]
+    explosure_time = [1/0.03125,1/0.0625,1/0.125,1/0.25,1/0.5,1,1/2,1/4,1/8,1/16,1/32,1/64,1/128,1/256,1/512,1/1024]
+    #explosure_time= [1/15,1/20,1/25,1/30,1/40,1/50,1/60,1/80,1/100]
+    explosure_time = [13,10,4,3.2,1,0.8,1/3,1/4,1/60,1/80,1/320,1/400,1/1000]
     HDR_instance = HDR(rgb_img, gray_img, rgb_img[4], explosure_time, lamb)
     HDR_instance.plot_res_curve()
     HDR_instance.construct_irradiance()
+    HDR_instance.plot_ln_irmap()
     #HDR_instance.alignment()
-    HDR_instance.tone_mapping()
+    HDR_instance.global_tone_mapping()
+    HDR_instance.gamma_mapping()
