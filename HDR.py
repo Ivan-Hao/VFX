@@ -78,7 +78,7 @@ class HDR():
                 shift_y += temp_y
                 shift_y *=2
                 shift_x *=2
-
+            print(shift_x/2,shift_y/2)
             F = np.float32([[1, 0, shift_x/2], [0, 1, shift_y/2]])
             write = cv2.warpAffine(self.rgb_picture[i], F, self.rgb_picture[i].shape[0:2][::-1])
             cv2.imwrite('.\\alignment_result\\'+ str(i)+'.jpg', write[:,:,::-1])  # rgb -> bgr 
@@ -173,7 +173,10 @@ class HDR():
         plt.show()
     
     def gamma_mapping(self):
-        gamma = np.power(self.LDR/float(np.max(self.LDR)),self.gamma)
+        gamma = np.zeros_like(self.LDR)
+        for i in range(3):
+            gamma[:,:,i] = (np.power(self.LDR[:,:,i]/float(np.max(self.LDR[:,:,i])),self.gamma)*255).round().astype(np.uint8)
+        cv2.imwrite('.\\result\\gamma.jpg',gamma[:,:,::-1])
         plt.imshow(gamma)
         plt.title("gamma correction")
         plt.show()
