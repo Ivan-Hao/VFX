@@ -30,6 +30,23 @@ class HDR():
         mask = np.logical_or(self.gray_base > base_median+10 , self.gray_base < base_median-10)
         mask_pyramid = [mask[::2**i,::2**i] for i in range(5)]
 
+        length = 0
+        for i in range(len(base_pyramid)):
+            length+=base_pyramid[i].shape[1]
+        x = np.ones((base_pyramid[0].shape[0],length))*255
+        y = np.ones((base_pyramid[0].shape[0],length))*255
+        temp=0
+        for i in range(len(base_pyramid)):
+            x[-base_pyramid[i].shape[0]:,temp:temp+base_pyramid[i].shape[1]] = base_pyramid[i]
+            y[-mask_pyramid[i].shape[0]:,temp:temp+mask_pyramid[i].shape[1]] = mask_pyramid[i]*255
+            temp +=base_pyramid[i].shape[1]
+        plt.imshow(x,cmap='gray')
+        plt.show()
+        plt.imshow(y,cmap='gray')
+        plt.show()
+
+
+
         crop = []
         for i in range(5):
             crop.append((base_pyramid[i].shape[0]//10,base_pyramid[i].shape[1]//10))
@@ -113,10 +130,10 @@ class HDR():
     
     def plot_res_curve(self):
         seq = [i for i in range(256)]
-        rgb = ['r','g','b']
+        rgb = ['red','green','blue']
         for i in range(3):
             plt.plot(self.res_curve[i],seq,rgb[i])
-            plt.title("red")
+            plt.title(rgb[i])
             plt.xlabel("ln E")
             plt.ylabel("pixel value")
             plt.show()
@@ -166,7 +183,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--alignment", help="please do it first and re-run the program with result image dir", default=False,type=bool)
     parser.add_argument("--lambda_", help="function smooth parameter", default=10,type=int)
-    parser.add_argument("--path", help="image dir path(image only)", default='./dataset',type=str)
+    parser.add_argument("--path", help="image dir path(image only)", default='./alignment_result',type=str)
     parser.add_argument("--index", help="The based picture's index(>=0)", default=0,type=int)
     parser.add_argument("--time", help="The explosure time file path(.txt or .npy)", default='explosure_time.txt',type=str)
     parser.add_argument("--gamma", help="gamma parameter", default=1.5, type=float)
@@ -186,7 +203,7 @@ if __name__ == '__main__':
     else:
         HDR_instance.response_curve()
         HDR_instance.construct_irradiance()
-        #HDR_instance.plot_res_curve()
-        #HDR_instance.plot_ln_irmap()
-        #HDR_instance.global_tone_mapping()
-        #HDR_instance.gamma_mapping()
+        HDR_instance.plot_res_curve()
+        HDR_instance.plot_ln_irmap()
+        HDR_instance.global_tone_mapping()
+        HDR_instance.gamma_mapping()
