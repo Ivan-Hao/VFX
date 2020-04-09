@@ -25,11 +25,12 @@ class HDR():
     def alignment(self):
         base_median = np.median(self.gray_base)
         base_bit = np.where(self.gray_base>base_median,255,0).astype(np.uint8)
-        base_pyramid = [base_bit[::2**i,::2**i] for i in range(5)]
+        base_pyramid = [base_bit[::2**i,::2**i] for i in range(6)]
 
         mask = np.logical_or(self.gray_base > base_median+10 , self.gray_base < base_median-10)
-        mask_pyramid = [mask[::2**i,::2**i] for i in range(5)]
+        mask_pyramid = [mask[::2**i,::2**i] for i in range(6)]
 
+        
         length = 0
         for i in range(len(base_pyramid)):
             length+=base_pyramid[i].shape[1]
@@ -44,12 +45,11 @@ class HDR():
         plt.show()
         plt.imshow(y,cmap='gray')
         plt.show()
-
-
+        
 
         crop = []
-        for i in range(5):
-            crop.append((base_pyramid[i].shape[0]//10,base_pyramid[i].shape[1]//10))
+        for i in range(6):
+            crop.append((base_pyramid[i].shape[1]//10,base_pyramid[i].shape[0]//10))
             
         compare_pyramid = []
         for i in range(self.P):
@@ -60,16 +60,16 @@ class HDR():
         for i in range(self.P):
             shift_x=0
             shift_y=0
-            for j in range(4,-1,-1):
+            for j in range(5,-1,-1):
                 M = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
                 compare = cv2.warpAffine(compare_pyramid[i][j], M, compare_pyramid[i][j].shape[0:2][::-1])
-                base_crop = base_pyramid[j][crop[j][0]:-crop[j][0],crop[j][1]:-crop[j][0]]
-                mask_crop = mask_pyramid[j][crop[j][0]:-crop[j][0],crop[j][1]:-crop[j][0]]
+                base_crop = base_pyramid[j][crop[j][0]:-crop[j][0],crop[j][1]:-crop[j][1]]
+                mask_crop = mask_pyramid[j][crop[j][0]:-crop[j][0],crop[j][1]:-crop[j][1]]
                 xor_min = np.inf
                 for r in range(-1,2,1): #上下
                     for c in range(-1,2,1): #左右                 
                         T = np.float32([[1, 0, c], [0, 1, r]])
-                        compare_shift = cv2.warpAffine(compare, T, compare.shape[0:2][::-1])[crop[j][0]:-crop[j][0],crop[j][1]:-crop[j][0]]
+                        compare_shift = cv2.warpAffine(compare, T, compare.shape[0:2][::-1])[crop[j][0]:-crop[j][0],crop[j][1]:-crop[j][1]]
                         xor_loss = np.logical_xor(base_crop,compare_shift)[mask_crop].sum()
                         if xor_loss < xor_min:
                             xor_min = xor_loss
@@ -181,11 +181,11 @@ class HDR():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--alignment", help="please do it first and re-run the program with result image dir", default=False,type=bool)
+    parser.add_argument("--alignment", help="alignment the image", default=False,type=bool)
     parser.add_argument("--lambda_", help="function smooth parameter", default=10,type=int)
     parser.add_argument("--path", help="image dir path(image only)", default='./alignment_result',type=str)
     parser.add_argument("--index", help="The based picture's index(>=0)", default=0,type=int)
-    parser.add_argument("--time", help="The explosure time file path(.txt or .npy)", default='explosure_time.txt',type=str)
+    parser.add_argument("--time", help="The explosure time file path(.txt or .npy)", default='Test_explosure.txt',type=str)
     parser.add_argument("--gamma", help="gamma parameter", default=1.5, type=float)
     
     args = parser.parse_args()
