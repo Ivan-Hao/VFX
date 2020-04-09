@@ -14,9 +14,9 @@ class HDR():
         self.gray_base = gray_base
         self.P = len(rgb_picture)
         self.shape = base_picture.shape[0:2]
+        self.time = np.log(time,dtype=np.float64)
         self._lambda = _lambda
         self.gamma = gamma
-        self.time = np.log(time,dtype=np.float64)
         self.res_curve = None
         self.irradiance = None
         self.ln_irradiance = None
@@ -109,10 +109,9 @@ class HDR():
             x = la.lstsq(A,b,rcond=None)[0]
 
             ret.append(x[0:256,0])
-        return ret
+        self.res_curve = ret
     
     def plot_res_curve(self):
-        self.res_curve = self.response_curve()
         seq = [i for i in range(256)]
         rgb = ['r','g','b']
         for i in range(3):
@@ -161,16 +160,15 @@ class HDR():
         plt.imshow(gamma)
         plt.title("gamma correction")
         plt.show()
-
-
+    
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--alignment", help="please do it first and re-run the program with result image dir", default=False,type=bool)
     parser.add_argument("--lambda_", help="function smooth parameter", default=10,type=int)
-    parser.add_argument("--path", help="image dir path(image only)", type=str)
+    parser.add_argument("--path", help="image dir path(image only)", default='./dataset',type=str)
     parser.add_argument("--index", help="The based picture's index(>=0)", default=0,type=int)
-    parser.add_argument("--time", help="The explosure time file path(.txt or .npy)", default= [],type=str)
+    parser.add_argument("--time", help="The explosure time file path(.txt or .npy)", default='explosure_time.txt',type=str)
     parser.add_argument("--gamma", help="gamma parameter", default=1.5, type=float)
     
     args = parser.parse_args()
@@ -180,15 +178,15 @@ if __name__ == '__main__':
     for files in os.listdir(args.path):
         rgb_img.append(cv2.imread(os.path.join(args.path,files))[:,:,::-1])
         gray_img.append(cv2.imread(os.path.join(args.path,files),cv2.IMREAD_GRAYSCALE))
-    explosure_time = args.time
-    if args.time:
-        explosure_time =np.loadtxt(args.time) 
+
+    explosure_time =np.loadtxt(args.time) 
     HDR_instance = HDR(rgb_img, gray_img, rgb_img[args.index], gray_img[args.index], explosure_time, args.lambda_, args.gamma)
     if args.alignment:
         HDR_instance.alignment()
     else:
-        HDR_instance.plot_res_curve()
+        HDR_instance.response_curve()
         HDR_instance.construct_irradiance()
-        HDR_instance.plot_ln_irmap()
-        HDR_instance.global_tone_mapping()
-        HDR_instance.gamma_mapping()
+        #HDR_instance.plot_res_curve()
+        #HDR_instance.plot_ln_irmap()
+        #HDR_instance.global_tone_mapping()
+        #HDR_instance.gamma_mapping()
