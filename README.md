@@ -1,5 +1,7 @@
 # NTU VFX 2020
-1. HDR image
+'''
+HDR image
    |-image alignment
    |-HDR reconstrution
    |-tone mapping
+'''
